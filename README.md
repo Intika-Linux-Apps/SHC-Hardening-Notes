@@ -39,6 +39,31 @@ gcc test.sh.x.c -o ooo -L.. -lfoo
 gcc -L.. -lfoo -lc -lgcc test.sh.x.c -o ooo
 ```
 
+Not implemented - Protect againts gdb debugguging
+```
+#include <stdio.h>
+#include <signal.h>
+
+static void sig_trp(int sig);
+
+void main(void)
+{
+    if(signal(SIGTRAP, sig_trp) == SIG_ERR) {
+        perror("signal");
+        exit(-1);
+    }
+    sleep(10);
+    printf("iam done\n");
+}
+
+static void sig_trp(int sig)
+{
+    printf("... AND THIS IS YOUR LAST BREAKPOINT!\n");
+    exit(-1);
+}
+
+```
+
 # SO Question
 
 **How to hide/change a process argument after `execl()`? or how can we hide/change arguments of a child process that is using `system()` / `execl()`?**
