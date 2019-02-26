@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+<head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>How to wrap a system call (libc function) in Linux &middot; Saman Barghi</title>
+
+  
+  <link rel="stylesheet" href="http://samanbarghi.com/css/poole.css">
+  <link rel="stylesheet" href="http://samanbarghi.com/css/hyde.css">
+  <link rel="stylesheet" href="http://samanbarghi.com/css/poole-overrides.css">
+  <link rel="stylesheet" href="http://samanbarghi.com/css/hyde-overrides.css">
+  <link rel="stylesheet" href="http://samanbarghi.com/css/hyde-x.css">
+  <link rel="stylesheet" href="http://samanbarghi.com/css/highlight/monokai_sublime.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+  <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+  
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="http://samanbarghi.com/touch-icon-144-precomposed.png">
+  <link href="http://samanbarghi.com/favicon.png" rel="icon">
+
+  
+  
+  
+  
+
+  <meta name="description" content="Your default page description">
+  <meta name="keywords" content="Saman,Barghi,Personal,Blog,Programming,Developer,University of Waterloo, hacker">
+  
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-48282777-1', 'auto');
+    ga('send', 'pageview');
+  </script>
+  
+</head>
+<body class="theme-base-0c">
+<div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      
+        <img src="https://www.gravatar.com/avatar/c46fe343ef662d682b4dc15cfe78cb06?s=200"
+             alt="gravatar" title="Saman Barghi">
+      
+      <h1>Saman Barghi</h1>
+      <p class="lead">Trying to live a better life.</p>
+    </div>
+
+    <ul class="sidebar-nav">
+      <li class="sidebar-nav-item"><a href="http://samanbarghi.com/">Blog</a></li>
+      
+      <li class="sidebar-nav-item"><a href="http://samanbarghi.com/about/">About</a></li>
+      
+      <li class="sidebar-nav-item"><a href="http://samanbarghi.com/projects/">Projects</a></li>
+      
+    </ul>
+
+    <ul class="sidebar-nav">
+      <li class="sidebar-nav-item">
+      <a href="https://github.com/samanbarghi"><i class="fa fa-github-square fa-3x"></i></a>
+      
+      <a href="http://stackexchange.com/users/308492/saman-barghi"><i class="fa fa-stack-overflow fa-3x"></i></a>
+      <a href="https://ca.linkedin.com/in/samanbarghi"><i class="fa fa-linkedin-square fa-3x"></i></a>
+      <a href="https://plus.google.com/107308907271825277073"><i class="fa fa-google-plus-square fa-3x"></i></a>
+      
+      
+      
+      <a href="http://samanbarghi.com/index.xml" type="application/rss+xml"><i class="fa fa-rss-square fa-3x"></i></a>
+      </li>
+    </ul>
+
+    
+    <p><script id='flattr'>
+      (function(id){
+        var s = document.getElementById(id);
+        var f = document.createElement('iframe');
+        f.src = '//api.flattr.com/button/view/?uid=saman_b&button=compact&url=http:\/\/samanbarghi.com\/&title=Saman Barghi';
+        f.title = 'Flattr';
+        f.height = 20;
+        f.width = 110;
+        f.style.borderWidth = 0;
+        s.parentNode.insertBefore(f, s);
+      })('flattr');
+    </script></p>
+    
+
+    
+  </div>
+</div>
+
+
+<div class="content container">
+  <div class="post">
+    <h1 class="post-title">How to wrap a system call (libc function) in Linux</h1>
+    <span class="post-date">Sep 5, 2014 &middot; 8 minute read &middot; <a href="http://samanbarghi.com/blog/2014/09/05/how-to-wrap-a-system-call-libc-function-in-linux/#disqus_thread">Comments</a>
+    
+    <br/>
+    <a class="label" href="http://samanbarghi.com/categories/linux">Linux</a><a class="label" href="http://samanbarghi.com/categories/geeky">Geeky</a><a class="label" href="http://samanbarghi.com/categories/programming">Programming</a><a class="label" href="http://samanbarghi.com/categories/c">C</a><a class="label" href="http://samanbarghi.com/categories/system-call">System call</a>
+    </span>
+    
+
+<p>For one of my research projects I had to wrap linux system calls and redirect
+them to another thread. In Linux system calls are not invoked directly, but
+rather via wrapper functions in
+glibc[<a href="http://man7.org/linux/man-pages/man2/syscalls.2.html">man 2 syscalls</a>]. The glibc
+wrapper is only copying arguments and unique system call number to the registers
+where the kernel expects them, then trapping to kernel mode and setting the
+errno if the system call returns an error number [<a href="http://man7.org/linux/man-pages/man2/intro.2.html">man 2 intro</a>].</p>
+
+<p>It is possible to invoke system calls directly by using syscall [<a href="http://man7.org/linux/man-pages/man2/syscall.2.html">man 2 syscall</a>]. But since most programs will rely on glibc functions for system calls, it will be enough to wrap those functions. There are two ways to wrap or override C functions in Linux:</p>
+
+<ul>
+<li><strong>Using LD_PRELOAD:</strong> There is a shell environment variable in Linux called
+<em>LD_PRELOAD</em>, which can be set to a path of a shared library, and that library
+will be loaded before any other library (including glibc).</li>
+<li><strong>Using &lsquo;ld --wrap=<em>symbol</em>&lsquo;:</strong> This can be used to use a wrapper function
+for <em>symbol</em>. Any further reference to <em>symbol</em> will be resolved to the
+wrapper function. [<a href="http://man7.org/linux/man-pages/man1/ld.1.html">man 1 ld</a>].</li>
+</ul>
+
+<p>I explain each approach later, but first lets write a very simple test file.
+I plan to wrap <em>write</em> system call and count the total number of characters that
+is being written out.</p>
+
+<h3 id="test-file:a3553a81da01374026bea81262624115">Test file</h3>
+
+<p>Lets write a very simple test file that calls <em>write</em> and <em>printf</em> to write to standard output:</p>
+
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+
+int main()
+{
+    write(0, &quot;Hello, Kernel!\n&quot;, 15);
+    printf(&quot;Hello, World!\n&quot;);
+
+    return 0;
+}
+</code></pre>
+
+<p>If I run the code I get:</p>
+
+<pre><code>$ ./bin/test
+Hello, Kernel!
+Hello, World!
+</code></pre>
+
+<p>Now I want to see what are the system calls that are being called when running the test file. I use <em>strace</em> to see the system calls responsible for writting to the standard output. <em>strace</em> is being used to trace system calls and signals. Here is the result:</p>
+
+<pre><code>execve(&quot;./bin/test&quot;, [&quot;./bin/test&quot;], [/* 53 vars */]) = 0
+brk(0)                                  = 0x2532000
+access(&quot;/etc/ld.so.nohwcap&quot;, F_OK)      = -1 ENOENT (No such file or directory)
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f099cc04000
+access(&quot;/etc/ld.so.preload&quot;, R_OK)      = -1 ENOENT (No such file or directory)
+open(&quot;/etc/ld.so.cache&quot;, O_RDONLY|O_CLOEXEC) = 3
+fstat(3, {st_mode=S_IFREG|0644, st_size=128624, ...}) = 0
+mmap(NULL, 128624, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f099cbe4000
+close(3)                                = 0
+access(&quot;/etc/ld.so.nohwcap&quot;, F_OK)      = -1 ENOENT (No such file or directory)
+open(&quot;/lib/x86_64-linux-gnu/libc.so.6&quot;, O_RDONLY|O_CLOEXEC) = 3
+read(3, &quot;\177ELF\2\1\1\0\0\0\0\0\0\0\0\0\3\0&gt;\0\1\0\0\0\320\37\2\0\0\0\0\0&quot;..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0755, st_size=1845024, ...}) = 0
+mmap(NULL, 3953344, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7f099c61e000
+mprotect(0x7f099c7d9000, 2097152, PROT_NONE) = 0
+mmap(0x7f099c9d9000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1bb000) = 0x7f099c9d9000
+mmap(0x7f099c9df000, 17088, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7f099c9df000
+close(3)                                = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f099cbe3000
+mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f099cbe1000
+arch_prctl(ARCH_SET_FS, 0x7f099cbe1740) = 0
+mprotect(0x7f099c9d9000, 16384, PROT_READ) = 0
+mprotect(0x600000, 4096, PROT_READ)     = 0
+mprotect(0x7f099cc06000, 4096, PROT_READ) = 0
+munmap(0x7f099cbe4000, 128624)          = 0
+write(0, &quot;Hello, Kernel!\n&quot;, 15Hello, Kernel!)        = 15
+fstat(1, {st_mode=S_IFCHR|0620, st_rdev=makedev(136, 3), ...}) = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f099cc03000
+write(1, &quot;Hello, World!\n&quot;, 14Hello, World!)         = 14
+exit_group(0)                           = ?
++++ exited with 0 +++
+</code></pre>
+
+<p>As you can see lines 26 and 29 are where the <em>write</em> system call related to our
+code is being called. Since our goal is to wrap glibc functions, lets check
+output of <em>ltrace</em> as well. <em>ltrace</em> intercepts and records the dynamic library
+calls which are called by the executed process [<a href="http://man7.org/linux/man-pages/man1/ltrace.1.html">man 1 ltrace</a>]. Here is the result:</p>
+
+<pre><code>__libc_start_main(0x40057d, 1, 0x7fffdd1ec628, 0x4005b0 &lt;unfinished ...&gt;
+write(0, &quot;Hello, Kernel!\n&quot;, 15Hello, Kernel!
+)                                          = 15
+puts(&quot;Hello, World!&quot;Hello, World!)         = 14
++++ exited (status 0) +++
+</code></pre>
+
+<p><em>ltrace</em> result shows that the <em>write</em> function in the code is calling the
+<em>write</em> function from glibc, but <em>printf</em> is calling <em>puts</em> from glibc. So we
+should be careful here, overriding only the <em>write</em> function from glibc will not
+cause the <em>write</em> system call from <em>printf</em> to be wrapped. We need to
+differentiate between the final system call and the glibc library call. So in
+order to cover both of the cases, I need to override <em>write</em> and <em>puts</em>
+functions. Now lets jump into wrapping these functions.</p>
+
+<h2 id="using-ld-preload:a3553a81da01374026bea81262624115">Using LD_PRELOAD</h2>
+
+<p>LD_PRELOAD allows a shared library to be loaded before any other libraries. So
+all I need to do is to write a shared library that overrides <em>write</em> and <em>puts</em>
+functions. If we wrap these functions, we need a way to call the real functions
+to perform the system call. <em>dlsym</em> just do that for us [<a href="http://man7.org/linux/man-pages/man3/dlsym.3.html">man 3 dlsym</a>]:
+&gt; The function dlsym() takes a &ldquo;handle&rdquo; of a dynamic library returned
+       by dlopen() and the null-terminated symbol name, returning the
+       address where that symbol is loaded into memory.  If the symbol is
+       not found, in the specified library or any of the libraries that were
+       automatically loaded by dlopen() when that library was loaded,
+       dlsym() returns NULL&hellip;</p>
+
+<p>So inside the wrapper function we can use dlsym to get the address of the related symbol in memory and call the glibc function. Another approach can be calling the syscall directly, both approaches will work. Here is the code:</p>
+
+<pre><code>#define _GNU_SOURCE
+#include &lt;dlfcn.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+/* Function pointers to hold the value of the glibc functions */
+static  ssize_t (*real_write)(int fd, const void *buf, size_t count) = NULL;
+static int (*real_puts)(const char* str) = NULL;
+
+/* wrapping write function call */
+ssize_t write(int fd, const void *buf, size_t count)
+{
+
+    /* printing out the number of characters */
+    printf(&quot;write:chars#:%lu\n&quot;, count);
+    /* reslove the real write function from glibc
+     * and pass the arguments.
+     */
+    real_write = dlsym(RTLD_NEXT, &quot;write&quot;);
+    real_write(fd, buf, count);
+
+}
+
+int puts(const char* str)
+{
+
+    /* printing out the number of characters */
+    printf(&quot;puts:chars#:%lu\n&quot;, strlen(str));
+    /* resolve the real puts function from glibc
+     * and pass the arguments.
+     */
+    real_puts = dlsym(RTLD_NEXT, &quot;puts&quot;);
+    real_puts(str);
+}
+</code></pre>
+
+<p>We first declare pointers to hold the value of the glibc functions, we will use these later to get the pointer from <em>dlsym</em>. Then we simply implement the glibc functions that we want to wrap, add our code and finally call the real function to perform the intended task.</p>
+
+<h4 id="compiling-the-shared-library:a3553a81da01374026bea81262624115">Compiling the shared library</h4>
+
+<p>We compile the shared library as follows:</p>
+
+<pre><code>gcc -fPIC -shared  -o bin/libpreload.so src/wrap-preload.c -ldl
+</code></pre>
+
+<p>We need to make sure we are generating a position-independent code(PIC) by passing <code>-fPIC</code> that is shared <code>-shared</code>. We also need to link our library with Dynamically Loaded (DL) libraries <code>-ldl</code>, since we are using dlsym in our code.</p>
+
+<p>To run our test code and wrap glibc functions, we simply set <code>LD_PRELOAD</code> enviornment variable to the generated shared object file:</p>
+
+<pre><code>$ LD_PRELOAD=/home/saman/Programming/wrap-syscall/bin/libpreload.so ./bin/test
+write:chars#:15
+Hello, Kernel!
+puts:chars#:13
+Hello, World!
+</code></pre>
+
+<p><code>LD_PRELOAD</code> loads the libpreload.so library before the execution of our code, and thus calling <em>write</em> and <em>puts</em> will call our wrapper functions inside the library.</p>
+
+<h2 id="using-ld-wrap-symbol:a3553a81da01374026bea81262624115">Using <em>ld --wrap=symbol</em></h2>
+
+<p>Another way of wrapping functions is by using linker at the link time. GNU linker provides an option to wrap a function for a symbol [<a href="http://man7.org/linux/man-pages/man1/ld.1.html">man 1 ld</a>]:</p>
+
+<blockquote>
+<p>Use a wrapper function for symbol.  Any undefined reference to
+           symbol will be resolved to &ldquo;<strong>wrap_symbol&rdquo;.  Any undefined
+           reference to &ldquo;</strong>real_symbol&rdquo; will be resolved to symbol.</p>
+
+<p>This can be used to provide a wrapper for a system function.  The
+           wrapper function should be called &ldquo;<strong>wrap_symbol&rdquo;.  If it wishes
+           to call the system function, it should call &ldquo;</strong>real_symbol&rdquo;.</p>
+
+<p>Here is a trivial example:</p>
+
+<pre><code>   void *
+   __wrap_malloc (size_t c)
+   {
+    printf (&quot;malloc called with %zu\n&quot;, c);
+    return __real_malloc (c);
+   }
+</code></pre>
+
+<p>If you link other code with this file using &ndash;wrap malloc, then
+    all calls to &ldquo;malloc&rdquo; will call the function &ldquo;<strong>wrap_malloc&rdquo;
+    instead.  The call to &ldquo;</strong>real_malloc&rdquo; in &ldquo;__wrap_malloc&rdquo; will
+    call the real &ldquo;malloc&rdquo; function.</p>
+
+<p>You may wish to provide a &ldquo;<strong>real_malloc&rdquo; function as well, so
+    that links without the &ndash;wrap option will succeed.  If you do
+    this, you should not put the definition of &ldquo;</strong>real_malloc&rdquo; in the
+    same file as &ldquo;__wrap_malloc&rdquo;; if you do, the assembler may
+    resolve the call before the linker has a chance to wrap it to
+    &ldquo;malloc&rdquo;.</p>
+</blockquote>
+
+<p>Based on the description, we need to implement two function <code>__real_symbol</code> and <code>__wrap_symbol</code> (in our case <code>__real_write</code> and <code>__wrap_write</code>), and link the application with our code. Here is the code:</p>
+
+<pre><code>#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+
+/* create pointers for real glibc functions */
+ssize_t __real_write(int fd, const void *buf, size_t count);
+int __real_puts(const char* str);
+
+
+/* wrapping write function */
+
+
+ssize_t __wrap_write (int fd, const void *buf, size_t count)
+{
+    /* printing out the number of characters */
+    printf(&quot;write:chars#:%lu\n&quot;, count);
+
+    /* call the real glibc function and return the result */
+    ssize_t result = __real_write(fd, buf, count);
+    return result;
+}
+
+/* wrapping puts function */
+int __wrap_puts (const char* str)
+{
+    /* printing out the number of characters */
+    printf(&quot;puts:chars#:%lu\n&quot;, strlen(str));
+
+    /* call the real glibc function and return the result */
+    int result = __real_puts(str);
+    return result;
+}
+
+</code></pre>
+
+<p>The code is very straight forward, but now lets try to compile the code and link it with our test application.</p>
+
+<pre><code>gcc -c src/wrap-link.c -o bin/wrap-link.o
+gcc -c src/test.c -o bin/test-link.o
+gcc -Wl,-wrap,write -Wl,-wrap=write -Wl,-wrap=puts bin/test-link.o bin/wrap-link.o -o bin/test-link-bin
+</code></pre>
+
+<p>I used <em>gcc</em> to pass the option to the linker with <code>-Wl</code>, which is equal to calling <code>ld</code> with <code>--wrap</code> option. Now if I run the code I get:</p>
+
+<pre><code>$ ./bin/test-link-bin
+write:chars#:15
+Hello, Kernel!
+puts:chars#:13
+Hello, World!
+</code></pre>
+
+<h2 id="conclusion:a3553a81da01374026bea81262624115">Conclusion</h2>
+
+<p>In order to wrap system calls in Linux, one have to wrap related glibc function calls. You have to be careful about the type of system calls you are tryting to override, since various functions might call different functions from glibc, e.g. <em>printf</em> calls <em>puts</em> from glibc which calls <em>write</em> at the end.</p>
+
+<p>There are two ways to do this: 1-Using <code>LD_PRELOAD</code> environment variable, 2-using <code>ld --wrap</code>. I personally prefer the first approach since if the number of wrapper functions increases I do not have to specify them one by one, as in the second case.</p>
+
+<p>You can find the source code and the related Makefile in the following github repository: <a href="wrap-syscall">https://github.com/samanbarghi/wrap-syscall</a>.</p>
+
+  </div>
+  <div id="disqus_thread"></div>
+</div>
+
+
+<script type="text/javascript">
+var disqus_shortname = "samanbarghi";
+(function () {
+    var s = document.createElement('script'); s.async = true;
+    s.type = 'text/javascript';
+    s.src = '//' + disqus_shortname + '.disqus.com/count.js';
+    (document.getElementsByTagName('HEAD')[0] || document.getElementsByTagName('BODY')[0]).appendChild(s);
+}());
+</script>
+
+
+
+<script type="text/javascript">
+    var disqus_shortname = "samanbarghi";
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+
+<script src="http://samanbarghi.com/js/highlight.pack.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+</body>
+</html>
+
