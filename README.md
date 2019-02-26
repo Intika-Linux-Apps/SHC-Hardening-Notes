@@ -30,6 +30,15 @@ strncpy(argv[0], "mynewcmdlinehere", strlen(argv[0]));
 strncpy(argv[1], "randomtrash", strlen(argv[1]));
 ```
 
+Integrate LD_PRELOAD
+```
+gcc -Wall -O2 -fpic -shared -Wl,-soname,libfoo.so -ldl -o libfoo.so x.c
+sudo ln -s ./libfoo.so /usr/lib64/libfoo.so
+gcc test.sh.x.c -o ooo -L.. -lfoo
+// Alternative
+gcc -L.. -lfoo -lc -lgcc test.sh.x.c -o ooo
+```
+
 # SO Question
 
 **How to hide/change a process argument after `execl()`? or how can we hide/change arguments of a child process that is using `system()` / `execl()`?**
