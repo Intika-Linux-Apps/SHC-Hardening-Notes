@@ -334,6 +334,10 @@ shc_x.c, inject the bash sh content to ******** argument by replacing it and cha
 
 **Note:** arguments can always be recovered by many ways, this code just makes it a little bit more complicated to reverse.
 
+# LD-Preload Documentations
+
+https://htmlpreview.github.io/?https://github.com/Intika-Linux-Apps/SHC-Hardening-Notes/blob/master/LD-Preload-Documentation.html
+
 # Links
 
 https://stackoverflow.com/questions/54819710/hide-execl-arguments-from-ps/
